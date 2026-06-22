@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth, Show, SignInButton } from "@clerk/nextjs";
 import type {
   GenerierungsErgebnis,
   Plattform,
@@ -21,6 +22,8 @@ const labelClass =
   "mb-1.5 block font-display text-xs uppercase tracking-widest text-muted";
 
 export default function GeneratorForm() {
+  const { isSignedIn } = useAuth();
+
   const [produktname, setProduktname] = useState("");
   const [merkmale, setMerkmale] = useState("");
   const [zielgruppe, setZielgruppe] = useState("");
@@ -31,6 +34,25 @@ export default function GeneratorForm() {
   const [laedt, setLaedt] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ergebnis, setErgebnis] = useState<GenerierungsErgebnis | null>(null);
+  const [verbleibend, setVerbleibend] = useState<number | null>(null);
+  const [limitErreicht, setLimitErreicht] = useState(false);
+
+  // Beim Anmelden das aktuelle Kontingent laden.
+  useEffect(() => {
+    if (!isSignedIn) {
+      setVerbleibend(null);
+      return;
+    }
+    fetch("/api/usage")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setVerbleibend(d.verbleibend);
+          setLimitErreicht(d.ueberschritten);
+        }
+      })
+      .catch(() => {});
+  }, [isSignedIn]);
 
   async function generieren() {
     setFehler(null);
@@ -56,8 +78,16 @@ export default function GeneratorForm() {
       const daten = await res.json();
       if (!res.ok) {
         setFehler(daten.fehler ?? "Etwas ist schiefgelaufen.");
+        if (daten.limitErreicht) {
+          setLimitErreicht(true);
+          setVerbleibend(0);
+        }
       } else {
         setErgebnis(daten.ergebnis);
+        if (typeof daten.verbleibend === "number") {
+          setVerbleibend(daten.verbleibend);
+          setLimitErreicht(daten.verbleibend <= 0);
+        }
       }
     } catch {
       setFehler("Verbindung fehlgeschlagen. Bitte erneut versuchen.");
@@ -169,13 +199,38 @@ export default function GeneratorForm() {
             </p>
           )}
 
-          <button
-            onClick={generieren}
-            disabled={laedt}
-            className="w-full rounded-md bg-accent px-4 py-2.5 font-medium text-white transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {laedt ? "Wird erstellt …" : "Produkttext erstellen"}
-          </button>
+          {/* Aktion: abhängig vom Anmeldestatus */}
+          <Show when="signed-out">
+            <SignInButton mode="modal">
+              <button className="w-full rounded-md bg-accent px-4 py-2.5 font-medium text-white transition-colors hover:bg-accent-dark">
+                Zum Erstellen anmelden
+              </button>
+            </SignInButton>
+            <p className="text-center text-xs text-muted">
+              Nach der Anmeldung hast du 5 kostenlose Generierungen pro Monat.
+            </p>
+          </Show>
+
+          <Show when="signed-in">
+            {verbleibend !== null && (
+              <p className="text-xs text-muted">
+                Noch <strong className="text-ink">{verbleibend}</strong>{" "}
+                kostenlose {verbleibend === 1 ? "Generierung" : "Generierungen"}{" "}
+                diesen Monat.
+              </p>
+            )}
+            <button
+              onClick={generieren}
+              disabled={laedt || limitErreicht}
+              className="w-full rounded-md bg-accent px-4 py-2.5 font-medium text-white transition-colors hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {laedt
+                ? "Wird erstellt …"
+                : limitErreicht
+                ? "Limit erreicht"
+                : "Produkttext erstellen"}
+            </button>
+          </Show>
         </div>
       </div>
 

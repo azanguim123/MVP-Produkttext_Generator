@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { anthropic, MODELL_STANDARD, MAX_TOKENS } from "@/lib/anthropic";
+import { statusAbrufen, nutzungErhoehen } from "@/lib/usage";
 import {
   systemPrompt,
   userPrompt,
@@ -19,6 +21,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { fehler: "Server ist nicht konfiguriert (API-Key fehlt)." },
       { status: 500 }
+    );
+  }
+
+  // --- Anmeldung prüfen ------------------------------------------------------
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json(
+      { fehler: "Bitte melde dich an, um Texte zu erstellen." },
+      { status: 401 }
+    );
+  }
+
+  // --- Kontingent prüfen (VOR dem teuren API-Aufruf) -------------------------
+  const status = await statusAbrufen(userId);
+  if (status.ueberschritten) {
+    return NextResponse.json(
+      {
+        fehler:
+          "Dein kostenloses Kontingent für diesen Monat ist aufgebraucht. Upgrade für mehr Generierungen.",
+        verbleibend: 0,
+        limitErreicht: true,
+      },
+      { status: 402 }
     );
   }
 
@@ -80,7 +105,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ergebnis });
+    // Erst bei Erfolg den Zähler erhöhen.
+    const neuerStatus = await nutzungErhoehen(userId);
+
+    return NextResponse.json({ ergebnis, verbleibend: neuerStatus.verbleibend });
   } catch (err) {
     console.error("Generierungsfehler:", err);
     return NextResponse.json(
