@@ -2,7 +2,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 
 // Kostenlose Generierungen pro Monat. Hier später die Logik für bezahlte
 // Tarife andocken (z. B. höheres Limit für zahlende Nutzer).
-export const GRATIS_LIMIT = 2;
+export const GRATIS_LIMIT = 5;
 
 export interface NutzungsStatus {
   verbleibend: number;
